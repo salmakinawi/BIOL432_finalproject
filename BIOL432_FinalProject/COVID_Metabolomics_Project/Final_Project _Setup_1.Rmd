@@ -1,0 +1,31 @@
+---
+title: "Final Project Setup Set up-1"
+output: html_document
+date: "2025-11-11"
+---
+
+```{r setup, include=FALSE}
+getwd()
+set.seed(111)
+setwd("C:/Users/zyd11/Dropbox/PC/Desktop/Biol432/COVID_Metabolomics_Project")
+list.files()
+list.files("data")
+scaled <- read.csv("data/ScaledData.csv", header = TRUE)
+dim(scaled)
+head(scaled[,1:8])
+str(scaled[,1:8])
+colnames(scaled)[1:20]
+
+colnames(scaled)[1:5]
+meta <- read.csv("data/FixedData.csv", header = TRUE)
+dim(meta)
+head(meta)
+colnames(meta)[1:10]
+
+merged <- merge(meta, scaled, by = "Sample.Name")
+dim(merged)
+head(merged[,1:10])
+
+write.csv(merged, "data/MergedData.csv", row.names = FALSE)
+```
+
