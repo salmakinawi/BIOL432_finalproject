@@ -1,0 +1,123 @@
+---
+title: "Question 1"
+output: html_document
+date: "2025-11-20"
+---
+
+```{r}
+#load libraries
+library(tidyverse)
+library(MASS)
+library(caret)
+library(ggplot2)
+
+```
+
+
+```{r}
+#load data
+scaled <- read.csv("ScaledData.csv")
+#look at structure
+str(scaled)
+head(scaled)
+summary(scaled)
+```
+```{r}
+#check what infection classes are present
+unique(scaled$Class.name)
+
+#check missing values per column
+colSums(is.na(scaled))
+
+```
+We checked for missing values. Metabolite columns contained no missing data, so no imputation was required. Missing data were present only in demographic metadata (Sex, Age, CT), which were not used in the LDA model
+
+```{r}
+#keep only four infection groups of interest: control, COVID-19, Influenza, and RSV
+#Drop VTM blanks and any unused factor levels
+ldadata<-scaled  %>%
+  filter(Class.name %in% c("Control", "COVID19", "Influenza", "RSV")) %>%
+  droplevels()
+#make sure class.name is a factor (required for classification models)
+ldadata$Class.name<-factor(ldadata$Class.name)
+```
+
+
+```{r}
+#columns 1-6 are metadata (samle.name, Batch.number, Class.name. Sex, Age, CT)
+#columns 7:ncol(ldadata) are metabolite abundances (already saled)
+meta_cols<-7:ncol(ldadata)
+
+# x, predictor matrix (all metabolite columns)
+X <- ldadata[, meta_cols]
+# y, response variable (infection class)
+y <- ldadata$Class.name
+```
+
+```{r}
+# Fit LDA model with, response: Class.name
+#predictors: all metabolite columns (meta_cols)
+lda_model<-lda(Class.name ~ ., data = ldadata[, c(3, meta_cols)])
+
+#print the LDA model summary (prior probabilities, group means, scaling)
+lda_model
+```
+
+```{r}
+#use predict to get 
+lda_pred<-predict(lda_model)
+
+#extract the LD scores 
+scores<-as.data.frame(lda_pred$x)
+
+#Add the true class labels so we can color points by infection group
+scores$Class.name<-ldadata$Class.name
+
+#creare a scatter plot of LD1 vs LD2,
+#colored by infection class to show seperation in discriminant space
+ggplot(scores,aes(LD1,LD2, color=Class.name)) +
+  geom_point(size = 2, alpha = 0.7) +
+  theme_minimal() +
+  labs(title = "Figure 1. LD1 vs LD2 Separation of Viral Infection Classes",
+       x = "Linear Discriminant 1",
+       y = "Linear Discriminant 2",
+       color = "Class")
+
+
+```
+Figure 1. Linear Discriminant Analysis (LDA) plot illustrating metabolic differences among Control, COVID-19, Influenza, and RSV samples. Points represent individual nasal metabolome profiles, projected onto the first two discriminant axes (LD1 and LD2), which maximize between-group separation. Distinct clustering of samples by infection class indicates that metabolite patterns differ systematically among viral infections.
+
+```{r}
+# to test robustness, train/test split, 10-fold cross-validation on training set, evaluation accuracy on a held-out test set
+
+set.seed(123) #for reproducibility
+#train/test split so each class is represented in both
+train_index <- createDataPartition(ldadata$Class.name, p = 0.8, list = FALSE)
+
+#training set: 80% of data 
+train <- ldadata[train_index, ]
+#test set: remaining 20% of the data
+test  <- ldadata[-train_index, ]
+
+#Define cross-validation strategy
+ctrl <- trainControl(method = "repeatedcv", number = 10, repeats = 5)
+
+#train LDA model 
+lda_fit <- train(Class.name ~ ., 
+                 data=train[, c(3, meta_cols)],
+                 method="lda",
+                 trControl=ctrl)
+
+lda_fit   # cross-validated accuracy
+
+# Use the trained LDA model (lda_fit) to predict on the held-out test set
+test_pred <- predict(lda_fit, newdata = test)
+
+# Create confusion matrix to compare predicted vs. true class labels
+cm <- confusionMatrix(test_pred, test$Class.name)
+
+# Print confusion matrix and associated accuracy statistics
+cm
+```
+
+Figure 2. Confusion matrix showing the performance of the Linear Discriminant Analysis (LDA) model on a held-out test set for the four infection classes (Control, COVID19, Influenza, RSV). Values indicate the number of samples predicted in each class versus their true class labels. Overall accuracy was 62.5%, with high sensitivity for Control and COVID19 and greater misclassification between Influenza and RSV.
