@@ -1,0 +1,164 @@
+---
+title: "BIOL 432 Q2"
+output: html_document
+date: "2025-11-21"
+---
+https://github.com/salmakinawi/BIOL432_finalproject
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+
+# Question 2: Which metabolites are the most discriminatory between COVID-infected and control samples?
+
+# loading libraries
+```{r}
+library(tidyverse)
+library(MASS)
+library(caret)
+library(ggplot2)
+library(randomForest)
+library(pROC)
+```
+
+
+```{r}
+data<- read.csv("/Users/kadenkowalyshyn/BIOL 432/BIOL 432_Project Proposal/BIOL432_FinalProject/COVID_Metabolomics_Project/data/ScaledData.csv")
+```
+
+```{r}
+names(data)
+```
+
+
+```{r}
+dat2 <- data %>%
+  filter(Class.name %in% c("cov-19", "control")) %>%
+  mutate(Class.name = factor(Class.name))
+
+```
+
+```{r}
+unique(data$Class.name)
+
+```
+
+# filter data to only COVID19 vs Control
+```{r}
+dat2 <- data %>%
+  filter(Class.name %in% c("COVID19", "Control")) %>%
+  mutate(Class.name = factor(Class.name))
+
+colSums(is.na(data))
+
+```
+
+Columns with NAs include Sex (27), Age (28), CT (16)
+However, our Random Forest only uses metabolite columns so NAs in Sex, Age, and CT will not affect our data as long as we exclude these columns from the predictors
+
+# separate predictors (X) from the response (y)
+```{r}
+head(dat2)
+meta_cols <- c("Sample.Name", "Batch.Number", "Class.name", "Sex", "Age", "CT")
+
+
+X<- dat2 %>% dplyr::select(-all_of(meta_cols))
+y<- dat2$Class.name
+```
+
+# Split to Train/Test Sets
+# set seed
+```{r}
+set.seed(123)
+
+train1<- caret::createDataPartition(y, p = 0.7, list = FALSE)
+train_X<- X[train1, ]
+test_X<- X[-train1, ]
+train_y<- y[train1]
+test_y<- y[-train1]
+```
+
+# Random Forest Model
+# train random forest model
+```{r}
+rf<- randomForest(
+  x = train_X,
+  y = train_y,
+  ntree = 1000,
+  mtry = floor(sqrt(ncol(train_X))),
+  importance = TRUE
+)
+rf
+```
+
+# Find Top Discriminatory Metabolites
+
+```{r}
+var_imp <- importance(rf, type = 2)
+
+var_imp_df <- data.frame(
+  metabolite = rownames(var_imp),
+  Gini = var_imp[, "MeanDecreaseGini"],
+  row.names = NULL
+) %>%
+  arrange(desc(Gini))
+
+head(var_imp_df, 10)
+
+```
+# visualize the top 10 metabolites
+```{r}
+top10 <- var_imp_df %>% slice(1:10)
+
+ggplot(top10, aes(x = reorder(metabolite, Gini), y = Gini)) +
+  geom_col() +
+  coord_flip() +
+  labs(
+    title = "Top 10 Metabolites Distinguishing COVID19 vs Control",
+    x = "Metabolite",
+    y = "Gini Importance"
+  )
+
+```
+Figure 1. Top 10 metabolites identified by the Random Forest model as strongest predictors differentiating COVID19 from control samples. Lysophosphatidylcholines (LYSOC species)  have highest-ranking predictors, which indicates substanstial alterations in lipid metabolism associated with SARS-CoV-2 infection
+
+# Confusion Matrix: showing how many samples were correctly classified
+```{r}
+caret::confusionMatrix(
+  data = predict(rf, newdata = test_X),
+  reference = test_y
+)
+```
+
+# ROC Curve 
+```{r}
+library(pROC)
+
+test_prob_covid <- predict(rf, newdata = test_X, type = "prob")[, "COVID19"]
+
+test_y_relevel <- relevel(test_y, ref = "Control")
+
+roc_obj <- roc(test_y_relevel, test_prob_covid)
+
+plot(roc_obj, main = "ROC Curve: COVID19 vs Control")
+
+```
+Figure 2. Reciever Operating CHaracteristic (ROC) curve for the Random Forest classifier distringuishing COVID19 from Control samples. The model demonstrates excellent performance, with the curve deviating strongly from the diagonal reference line, indicating high predictive accuracy based on metabolite profiles.
+
+# AUC
+```{r}
+auc(roc_obj)
+```
+
+
+
+
+
