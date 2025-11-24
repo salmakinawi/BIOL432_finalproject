@@ -128,7 +128,7 @@ ggplot(top10, aes(x = reorder(metabolite, Gini), y = Gini)) +
   )
 
 ```
-Figure 1. Top 10 metabolites identified by the Random Forest model as strongest predictors differentiating COVID19 from control samples. Lysophosphatidylcholines (LYSOC species)  have highest-ranking predictors, which indicates substanstial alterations in lipid metabolism associated with SARS-CoV-2 infection
+Figure 1. Top 10 metabolites identified by the Random Forest model as strongest predictors differentiating COVID19 from control samples. Lysophosphatidylcholines (LYSOC species)  have highest-ranking predictors, which indicates substanstial alterations in lipid metabolism associated with SARS-CoV-2 infection.
 
 # Confusion Matrix: showing how many samples were correctly classified
 ```{r}
@@ -157,7 +157,7 @@ Figure 2. Reciever Operating CHaracteristic (ROC) curve for the Random Forest cl
 ```{r}
 auc(roc_obj)
 ```
-
+An AUC of 0.9567 demonstrates that the metabolite-based model has strong discriminatory power, with COVID19 and control samples which shows clear metabolic separation. This value suggest strong biological differences between the groups as a AUC close to 1 reflects such.
 
 
 
