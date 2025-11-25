@@ -274,14 +274,26 @@ pca <- prcomp(metabolites, scale. = TRUE)
 pca_df <- data.frame(pca$x[, 1:5],
                      Sex = scaled_clean$Sex,
                      Age = scaled_clean$Age)
-ggplot(pca_df, aes(PC1, PC2, color = Sex, size = Age)) +
-  geom_point(alpha = 0.7) +
+#Create Age groups for shape
+pca_df$AgeGroup <- cut(
+  pca_df$Age,
+  breaks = c(-Inf, 30, 60, Inf),
+  labels = c("Young", "Middle", "Older")
+)
+
+# PCA visulaization 
+ggplot(pca_df, aes(x = PC1, y = PC2, 
+                   color = Sex, 
+                   shape = AgeGroup)) +
+  geom_point(size = 3, alpha = 0.8) +
   theme_minimal(base_size = 14) +
   labs(title = "PCA of Scaled Metabolomic Data by Sex and Age",
        subtitle = "Using standardized metabolite abundance only",
-       x = "PC1", y = "PC2") +
+       x = "PC1", y = "PC2",
+       shape = "Age Group") +
   scale_color_manual(values = c("Female" = "red", "Male" = "skyblue")) +
-  scale_size_continuous(range = c(2, 6))
+  scale_shape_manual(values = c(16, 17, 15))
+
 ```
 Figure 4. Linear regression results showing that age explains very little variation in the first two principal components (PC1 and PC2). PC1 shows a weak but statistically significant association with age (R² ≈ 0.02, p ≈ 0.039), while PC2 shows no detectable relationship (R² < 0.001, p ≈ 0.81). These findings indicate that age does not strongly contribute to the major axes of metabolomic variation.
 
