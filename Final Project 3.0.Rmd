@@ -1,0 +1,360 @@
+---
+title: 'BIOL 432 Final Project: Metabolite and Demogrpahic Determinants of Viral Respiratory
+  Disease'
+author: Justin Lasrado, Kaden Kowalyshyn, Salma Kinawi, Maia Cossette, Yudong Zhang,
+  Bradley Barham
+date: "2025-11-25"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+
+https://github.com/salmakinawi/BIOL432_finalproject
+
+
+```{r}
+# Load required libraries
+library(tidyverse)
+library(MASS)
+library(caret)
+library(ggplot2)
+library(randomForest)
+library(pROC)
+library(dplyr)
+```
+
+```{r}
+# Load the scaled data
+dat<- read.csv("scaleddata.csv")
+head(dat)
+summary(dat)
+```
+
+```{r}
+names(dat)
+
+#check what infection classes are present
+unique(dat$Class.name)
+
+#check missing values per column
+colSums(is.na(dat))
+
+```
+We checked for missing values. Metabolite columns contained no missing data, so no imputation was required. Missing data were present only in demographic metadata (Sex, Age, CT), which were not used in the LDA model
+
+```{r}
+# Keep only four infection groups of interest: control, COVID-19, Influenza, and RSV
+
+# Drop VTM blanks and any unused factor levels
+ldadata<-dat  %>%
+  filter(Class.name %in% c("Control", "COVID19", "Influenza", "RSV")) %>%
+  droplevels()
+
+# Make sure class.name is a factor (required for classification models)
+ldadata$Class.name<-factor(ldadata$Class.name)
+```
+
+```{r}
+#columns 1-6 are metadata (samle.name, Batch.number, Class.name. Sex, Age, CT)
+#columns 7:ncol(ldadata) are metabolite abundances (already saled)
+meta_cols<-7:ncol(ldadata)
+
+# x, predictor matrix (all metabolite columns)
+X <- ldadata[, meta_cols]
+# y, response variable (infection class)
+y <- ldadata$Class.name
+```
+
+```{r}
+# Look at if necessary
+# Fit LDA model with, response: Class.name
+#predictors: all metabolite columns (meta_cols)
+lda_model<-lda(Class.name ~ ., data = ldadata[, c(3, meta_cols)])
+
+#print the LDA model summary (prior probabilities, group means, scaling)
+lda_model
+```
+```{r}
+#use predict to get 
+lda_pred<-predict(lda_model)
+
+#extract the LD scores 
+scores<-as.data.frame(lda_pred$x)
+
+#Add the true class labels so we can color points by infection group
+scores$Class.name<-ldadata$Class.name
+
+# Create a scatter plot of LD1 vs LD2,
+# colored by infection class to show separation in discriminant space
+ggplot(scores,aes(LD1,LD2, color=Class.name)) +
+  geom_point(size = 2, alpha = 0.7) +
+  theme_minimal() +
+  labs(title = "LD1 vs LD2 Separation of Viral Infection Classes",
+       x = "Linear Discriminant 1",
+       y = "Linear Discriminant 2",
+       color = "Class")
+
+
+```
+Figure 1. Linear Discriminant Analysis (LDA) plot illustrating metabolic differences among Control, COVID-19, Influenza, and RSV samples. Points represent individual nasal metabolome profiles, projected onto the first two discriminant axes (LD1 and LD2), which maximize between-group separation. Distinct clustering of samples by infection class indicates that metabolite patterns differ systematically among viral infections.
+
+```{r}
+# To test robustness, train/test split, 10-fold cross-validation on training set, evaluation accuracy on a held-out test set
+
+set.seed(123) #for reproducibility
+#train/test split so each class is represented in both
+train_index <- createDataPartition(ldadata$Class.name, p = 0.8, list = FALSE)
+
+#training set: 80% of data 
+train <- ldadata[train_index, ]
+#test set: remaining 20% of the data
+test  <- ldadata[-train_index, ]
+
+#Define cross-validation strategy
+ctrl <- trainControl(method = "repeatedcv", number = 10, repeats = 5)
+
+#train LDA model 
+lda_fit <- train(Class.name ~ ., 
+                 data=train[, c(3, meta_cols)],
+                 method="lda",
+                 trControl=ctrl)
+
+lda_fit   # cross-validated accuracy
+
+# Use the trained LDA model (lda_fit) to predict on the held-out test set
+test_pred <- predict(lda_fit, newdata = test)
+
+# Create confusion matrix to compare predicted vs. true class labels
+cm <- confusionMatrix(test_pred, test$Class.name)
+
+# Print confusion matrix and associated accuracy statistics
+cm
+```
+Table 1. Confusion matrix showing the performance of the Linear Discriminant Analysis (LDA) model on a held-out test set for the four infection classes (Control, COVID19, Influenza, RSV). Values indicate the number of samples predicted in each class versus their true class labels. Overall accuracy was 62.5%, with high sensitivity for Control and COVID19 and greater misclassification between Influenza and RSV.
+```{r}
+dat2 <- dat %>%
+  filter(Class.name %in% c("cov-19", "control")) %>%
+  mutate(Class.name = factor(Class.name))
+
+```
+
+```{r}
+unique(dat$Class.name)
+
+```
+```{r}
+# Filter data to only COVID19 vs Control
+dat2 <- dat %>%
+  filter(Class.name %in% c("COVID19", "Control")) %>%
+  mutate(Class.name = factor(Class.name))
+
+colSums(is.na(dat))
+
+```
+
+Columns with NAs include Sex (27), Age (28), CT (16)
+However, our Random Forest only uses metabolite columns so NAs in Sex, Age, and CT will not affect our data as long as we exclude these columns from the predictors
+
+```{r}
+# Separate predictors (X) from the response (y)
+head(dat2)
+meta_cols <- c("Sample.Name", "Batch.Number", "Class.name", "Sex", "Age", "CT")
+
+
+X<- dat2 %>% dplyr::select(-all_of(meta_cols))
+y<- dat2$Class.name
+```
+```{r}
+# Split to Train/Test Sets
+# Set seed for reproducibility
+set.seed(123)
+
+train1<- caret::createDataPartition(y, p = 0.7, list = FALSE)
+train_X<- X[train1, ]
+test_X<- X[-train1, ]
+train_y<- y[train1]
+test_y<- y[-train1]
+```
+We split the dataset training 70% and testing 30% to evaluate how well the model generalizes to unseen data.
+```{r}
+# Random Forest Model
+# Train random forest model
+rf<- randomForest(
+  x = train_X,
+  y = train_y,
+  ntree = 1000,
+  mtry = floor(sqrt(ncol(train_X))),
+  importance = TRUE
+)
+rf
+```
+We trained a Random Forest classifier using 1,000 trees to identify metabolite patterns that distinguish COVID19 from Control samples.
+```{r}
+# Find Top Discriminatory Metabolites
+
+var_imp <- importance(rf, type = 2)
+
+var_imp_df <- data.frame(
+  metabolite = rownames(var_imp),
+  Gini = var_imp[, "MeanDecreaseGini"],
+  row.names = NULL
+) %>%
+  arrange(desc(Gini))
+
+head(var_imp_df, 10)
+
+```
+
+```{r}
+# Visualize the top 10 metabolites
+top10 <- var_imp_df %>% slice(1:10)
+
+ggplot(top10, aes(x = reorder(metabolite, Gini), y = Gini)) +
+  geom_col() +
+  coord_flip() +
+  theme_minimal() +
+  labs(
+    title = "Top 10 Metabolites Distinguishing COVID19 vs Control",
+    x = "Metabolite",
+    y = "Gini Importance"
+  )
+
+```
+Figure 2. Top 10 metabolites identified by the Random Forest model as strongest predictors differentiating COVID19 from control samples. Lysophosphatidylcholines (LYSOC species)  have highest-ranking predictors, which indicates substanstial alterations in lipid metabolism associated with SARS-CoV-2 infection.
+
+```{r}
+# Confusion Matrix: showing how many samples were correctly classified
+caret::confusionMatrix(
+  data = predict(rf, newdata = test_X),
+  reference = test_y
+)
+```
+Table caption
+
+```{r}
+# ROC Curve 
+
+test_prob_covid <- predict(rf, newdata = test_X, type = "prob")[, "COVID19"]
+
+test_y_relevel <- relevel(test_y, ref = "Control")
+
+roc_obj <- roc(test_y_relevel, test_prob_covid)
+
+plot(roc_obj, main = "ROC Curve: COVID19 vs Control")
+
+```
+Figure 3. Receiver Operating CHaracteristic (ROC) curve for the Random Forest classifier distringuishing COVID19 from Control samples. The model demonstrates excellent performance, with the curve deviating strongly from the diagonal reference line, indicating high predictive accuracy based on metabolite profiles.
+
+
+```{r}
+# AUC
+auc(roc_obj)
+```
+An AUC of 0.9567 demonstrates that the metabolite-based model has strong discriminatory power, with COVID19 and control samples which shows clear metabolic separation. This value suggest strong biological differences between the groups as a AUC close to 1 reflects such.
+
+
+```{r}
+# PCA Analysis to Explore Demographic Influences
+set.seed(111)
+cat("Scaled data:", dim(dat), "\n")
+dat$Age <- gsub("[^0-9.]", "", dat$Age)
+dat$Age <- as.numeric(dat$Age)
+mean_age <- mean(dat$Age, na.rm = TRUE)
+dat$Age[is.na(dat$Age)] <- mean_age
+scaled_clean <- dat %>% filter(!is.na(Sex))
+scaled_clean$Sex <- as.factor(scaled_clean$Sex)
+metabolites <- scaled_clean[, 7:ncol(scaled_clean)]
+```
+
+```{r}
+# Perform PCA and plot for visualization
+pca <- prcomp(metabolites, scale. = TRUE)
+pca_df <- data.frame(pca$x[, 1:5],
+                     Sex = scaled_clean$Sex,
+                     Age = scaled_clean$Age)
+ggplot(pca_df, aes(PC1, PC2, color = Sex, size = Age)) +
+  geom_point(alpha = 0.7) +
+  theme_minimal(base_size = 14) +
+  labs(title = "PCA of Scaled Metabolomic Data by Sex and Age",
+       subtitle = "Using standardized metabolite abundance only",
+       x = "PC1", y = "PC2") +
+  scale_color_manual(values = c("Female" = "red", "Male" = "skyblue")) +
+  scale_size_continuous(range = c(2, 6))
+```
+Figure 4. Linear regression results showing that age explains very little variation in the first two principal components (PC1 and PC2). PC1 shows a weak but statistically significant association with age (R² ≈ 0.02, p ≈ 0.039), while PC2 shows no detectable relationship (R² < 0.001, p ≈ 0.81). These findings indicate that age does not strongly contribute to the major axes of metabolomic variation.
+
+```{r}
+# Linear regression of PC1 and PC2 against Age
+lm_PC1 <- lm(PC1 ~ Age, data = pca_df)
+lm_PC2 <- lm(PC2 ~ Age, data = pca_df)
+summary(lm_PC1)
+summary(lm_PC2)
+```
+
+```{r}
+# Scatter plot of Age vs PC1 with regression line
+ggplot(pca_df, aes(Age, PC1)) +
+  geom_point(alpha = 0.7, color = "skyblue") +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  theme_minimal(base_size = 14) +
+  labs(title = "Relationship Between Age and PC1",
+       subtitle = "Expected weak linear correlation (Scaled data only)",
+       x = "Age", y = "PC1 score")
+```
+Figure 5. This scatter plot illustrates the association between participant age and the first principal component (PC1) derived from scaled metabolomic features. Each point represents an individual sample, and the fitted linear regression line (red) shows a weak positive trend (β ≈ small, p ≫ 0.05), indicating that age explains very little of the variation in PC1. This suggests that age does not substantially contribute to the major axis of metabolomic variation in this dataset.
+
+```{r}
+#Check Sex and Age
+table(pca_df$Sex, useNA = "ifany")
+summary(pca_df$Age)
+```
+```{r}
+
+#LDA For Sex
+lda_sex<- lda(Sex~PC1+PC2+PC3+PC4+PC5,
+              data = pca_df,
+              CV= TRUE)
+sex_pred<- lda_sex$class
+sex_acc<- mean(sex_pred==pca_df$Sex)
+sex_acc
+table(True=pca_df$Sex, Pred= sex_pred)
+
+#Fit LDA model to get LD scores 
+set.seed(111)
+lda_sex_fit<- lda(Sex~PC1+PC2+PC3+PC4+PC5, data = pca_df)
+lda_sex_scores<- predict(lda_sex_fit)$x
+lda_sex_df<- data.frame(lda_sex_scores, Sex=pca_df$Sex)
+
+```
+
+```{r}
+#Plot LD1 vs LD2 by Sex
+ggplot(lda_sex_df, aes(x=LD1, fill = Sex)) +
+  geom_density(alpha=0.5) +
+  theme_minimal(base_size = 14) +
+  labs(title = "LDA of Metabolomic PCs by Sex", 
+       subtitle = "Density of LD1 scores by sex", x = "LD1", y = "Density")
+```
+Figure 6. Linear Discriminant Analysis (LDA) of the first five principal components reveals sex-associated structure in nasal metabolite profiles. The density plot shows the distribution of LD1 scores for female (pink) and male (blue) samples; males are shifted toward higher LD1 values, with partial overlap between sexes, indicating some separation of metabolomic profiles by sex.
+```{r}
+#LDA for Age
+
+median_age<- median(pca_df$Age, na.rm=TRUE)
+pca_df$AgeGroup<-ifelse(pca_df$Age <=median_age, "Younger", "Older")
+pca_df$AgeGroup<-factor(pca_df$AgeGroup)
+table(pca_df$AgeGroup)
+
+lda_age_fit<- lda(Age~PC1+PC2+PC3+PC4+PC5, data = pca_df)
+lda_age_scores<- predict(lda_age_fit)$x
+lda_age_df<- data.frame(lda_age_scores, AgeGroup=pca_df$AgeGroup)
+
+ggplot(lda_age_df, aes(x=LD1, fill= AgeGroup)) +
+  geom_density(alpha=0.5) +
+  theme_minimal(base_size = 14) +
+  labs(title = "LDA of Metabolomic PCs by Age", 
+       subtitle = "Density of LD1 scores by age", x= "LD1", y= "Density")
+
+```
+Figure 7. Linear Discriminant Analysis (LDA) of metabolomic principal components by age group. Density plots of LD1 scores for younger (<median age (27 years old) in blue) and older (> median (27 years old, pink) participants show highly overlapping distributions, indicating little evidence that overall metabolomic profiles differ with age. 
