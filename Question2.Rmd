@@ -85,6 +85,7 @@ test_X<- X[-train1, ]
 train_y<- y[train1]
 test_y<- y[-train1]
 ```
+we split the dataset training 70% and testing 30% to evaluate how well the model generalizes to unseen data.
 
 # Random Forest Model
 # train random forest model
@@ -98,6 +99,7 @@ rf<- randomForest(
 )
 rf
 ```
+We trained a Random Forest classifier using 1,000 trees to identify metabolite patterns that distinguish COVID19 from Control samples. 
 
 # Find Top Discriminatory Metabolites
 
