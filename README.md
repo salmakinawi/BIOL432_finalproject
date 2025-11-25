@@ -25,3 +25,6 @@ The answers to these questions can be used to help improve diagnostic accuracy a
 
 We used the publicly available COVID-19 Nasal Metabolomics Dataset from the Colautti Lab (ColauttiLab/COVID-Metabolomics)
 
+To re-run our analysis, be sure to first visit the BIOL432_FinalProject folder and go to COVID_Metabolomics_Project folder and then click on the data folder where you will need to download the "ScaledData.csv" file. Then load data in r and follow code uploaded and called "Final Project 3.0.RMD" as this contains the compiled code from questions 1-3.
+
+
